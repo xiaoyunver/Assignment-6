@@ -20,7 +20,12 @@ var popByState = d3.map();
 
 //Scales
 var scaleR = d3.scale.sqrt().range([5,130]),
-    scaleColor = d3.scale.linear().domain([70,90]).range(['white','red']);
+    scaleColor = d3.scale.linear().domain([70,90]).range(['white','rgb(255,0,145)']);
+
+var force = d3.layout.force()
+    .size([width,height])
+    .charge(0)
+    .gravity(0);
 
 //import data
 queue()
@@ -42,7 +47,8 @@ queue()
                 x0:centroid[0],
                 y0:centroid[1],
                 x:centroid[0],
-                y:centroid[1]
+                y:centroid[1],
+                r:scaleR( (popByState.get(d.properties.STATE)).pop )
             }
         });
         console.log(data);
@@ -56,10 +62,13 @@ queue()
             .attr('class','state');
         nodes.exit().remove();
 
+
         nodes
             .attr('transform',function(d){
                 return 'translate('+d.x+','+d.y+')';
-            })
+            });
+
+
         nodes
             .append('circle')
             .attr('r',function(d){
@@ -70,19 +79,79 @@ queue()
                 var pct18Plus = (popByState.get(d.state)).pop18plus;
                 return scaleColor(pct18Plus);
             })
-            .style('fill-opacity',.7);
+            .style('fill-opacity',.7)
+            .call(force.drag);
+
+
         nodes
             .append('text')
             .text(function(d){
-                return d.name;
+                return d.fullName;
             })
             .attr('text-anchor','middle');
 
         //TODO: create a force layout
         //with what physical parameters?
-        var force = d3.layout.force()
+        /*var force = d3.layout.force()
+            .size([width,height])
+            .charge(0)
+            .gravity(0);*/
         //on "tick" event ...
+        force.nodes(data)
+            .on('tick',onForceTick)
+            .start();
 
+        function onForceTick(e){
+            var q = d3.geom.quadtree(data),
+                i = 0,
+                n = data.length;
+
+            while( ++i<n ){
+                q.visit( collide(data[i]) );
+            }
+            nodes
+                .each(gravity(e.alpha *.1))
+                .attr('cx',function(d){return d.x})
+                .attr('cy',function(d){return d.y})
+                .attr('transform',function(d){
+                    return 'translate('+d.x+','+d.y+')'});
+
+
+
+
+            function gravity(k){
+                //custom gravity: data points gravitate towards a straight line
+                return function(d){
+                    d.y += (d.y0 - d.y)*k;
+                    d.x += (d.x0 - d.x)*k;
+                }
+            }
+
+            function collide(dataPoint){
+                var nr = dataPoint.r + 5,
+                    nx1 = dataPoint.x - nr,
+                    ny1 = dataPoint.y - nr,
+                    nx2 = dataPoint.x + nr,
+                    ny2 = dataPoint.y + nr;
+
+                return function(quadPoint,x1,y1,x2,y2){
+                    if(quadPoint.point && (quadPoint.point !== dataPoint)){
+                        var x = dataPoint.x - quadPoint.point.x,
+                            y = dataPoint.y - quadPoint.point.y,
+                            l = Math.sqrt(x*x+y*y),
+                            r = nr + quadPoint.point.r;
+                        if(l<r){
+                            l = (l-r)/l*.1;
+                            dataPoint.x -= x*= (l*.05);
+                            dataPoint.y -= y*= l;
+                            quadPoint.point.x += (x*.05);
+                            quadPoint.point.y += y;
+                        }
+                    }
+                    return x1>nx2 || x2<nx1 || y1>ny2 || y2<ny1;
+                }
+            }
+        }
 	});
 
 function parseData(d){
